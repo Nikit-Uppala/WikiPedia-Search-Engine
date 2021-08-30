@@ -1,33 +1,39 @@
 import re
-from typing import final
-from nltk.corpus import stopwords
-# from nltk.stem import SnowballStemmer
-from nltk.stem import PorterStemmer
-from nltk.tokenize import word_tokenize
 import xml.sax
 import sys
+from preprocessing import text_preprocessing
 
 pages = 0
 tokens = 0
 words = set()
-tokens_in_index = set()
-stopWords = set(stopwords.words("english"))
+tokens_in_index = {}
+inverted_index = []
+flag = 0
 
 
-def text_preprocessing(text):
-    text = re.sub(r"`|~|!|@|#|\$|%|\^|&|\*|\(|\)|-|_|=|\+|\||\\|\[|\]|\{|\}|;|:|'|\"|,|<|>|\.|/|\?|\n|\t", " ", text)
-    text = re.sub(r"&.+;", "", text)
-    # text = text.split()
-    text = word_tokenize(text)
-    for word in text:
-        words.add(word)
-    text = list(filter(lambda x: x not in stopWords, text))
-    # stemmer = SnowballStemmer(language="english")
-    stemmer = PorterStemmer()
-    text = [stemmer.stem(x) for x in text]
-    for token in text:
-        tokens_in_index.add(token)
-    return text
+def insert_word(word):
+    global tokens, tokens_in_index
+    tokens_in_index[word] = [tokens, 0, -1, -1]
+    tokens += 1
+
+
+def insert_into_inverted_index(data, page_number):
+    global inverted_index, tokens_in_index
+    entries = {}
+    for key in data:
+        for word in data[key]:
+            if word not in entries.keys():
+                entries[word] = {}
+            if word not in tokens_in_index.keys():
+                insert_word(word)
+            if key not in entries[word]:
+                entries[word][key] = 0
+            entries[word][key] += 1
+    for word in entries:
+        tokens_in_index[word][1] += 1
+        new_entry = {tokens_in_index[word][0]: entries[word]}
+        new_entry[tokens_in_index[word][0]]["p"] = page_number
+        inverted_index.append(new_entry)
 
 
 def split_on_links(text):
@@ -54,14 +60,25 @@ def split_on_references(text):
     return text
 
 
-def process_infobox(text):
-    text = text.split("|")
-    final_infobox = []
-    for info in text:
-        info = info.split("=")
-        if len(info) > 1:
-            final_infobox.append(info[-1])
-    return " ".join(final_infobox)
+def get_infobox(lines):
+    infobox_open = False
+    infobox_data = ""
+    last_line_infobox = 0
+    for i in range(len(lines)):
+        line = lines[i].strip()
+        if infobox_open and line == "}}":
+            infobox_open = False
+            last_line_infobox = i+1
+        elif infobox_open:
+            line = line.split("=")
+            if len(line) > 1:
+                for j in range(len(line)-1, 0, -1):
+                    infobox_data = " ".join([infobox_data, line[j]])
+        elif not infobox_open and len(re.findall(r"\{\{infobox", line)) > 0:
+            infobox_open = True
+            line = re.sub(r"\{\{infobox", "", line)
+            infobox_data = " ".join([infobox_data, line])
+    return infobox_data, last_line_infobox
 
 
 def get_fields(title, text):
@@ -70,31 +87,45 @@ def get_fields(title, text):
     # getting title
     fields["t"] = text_preprocessing(title)
 
-    # getting categories
-    fields["c"] = text_preprocessing(" ".join(re.findall(r"\[\[category:(.*?)\]\]", text)))
-    text = re.sub(r"\[\[category:(.*?)\]\]", "", text)
-
-    # getting infobox
-    fields["i"] = " ".join(re.findall(r"\{\{.*?infobox(.*?)\}\}", text, flags=re.DOTALL))
-    fields["i"] = text_preprocessing(process_infobox(fields["i"]))
-    text = re.sub(r"\{\{.*?infobox.*?\}\}", "", text, flags=re.DOTALL)
-
     # getting links
     text = split_on_links(text)
-    fields["l"] = text_preprocessing("")
+    fields["l"] = []
     if len(text) > 1:
-        hyperlinks = re.findall(r"\[?(https?:\/\/(?:www\.|(?!www))[a-zA-Z0-9][a-zA-Z0-9-]+[a-zA-Z0-9]\.[^\s]{2,}|www\.[a-zA-Z0-9][a-zA-Z0-9-]+[a-zA-Z0-9]\.[^\s]{2,}|https?:\/\/(?:www\.|(?!www))[a-zA-Z0-9]+\.[^\s]{2,}|www\.[a-zA-Z0-9]+\.[^\s]{2,})(.*)\]?", text[-1])
-        for i in range(len(hyperlinks)):
-            hyperlinks[i] = " ".join(hyperlinks[i])
+        # getting categories
+        fields["c"] = text_preprocessing(" ".join(re.findall(r"\[\[category:(.*?)\]\]", text[-1])))
+        text[-1] = re.sub(r"\[\[category:(.*?)\]\]", "", text[-1])
+
+        hyperlinks = re.findall(r"\[(.*)\]", text[-1])
         hyperlinks = " ".join(hyperlinks)
         fields["l"] = text_preprocessing(hyperlinks)
     text = text[0]
-    
+
     # getting references
     text = split_on_references(text)
+    fields["r"] = []
     if len(text) > 1:
-        pass
+        # getting categories if not collected
+        if "c" not in fields.keys():
+            fields["c"] = text_preprocessing(" ".join(re.findall(r"\[\[category:(.*?)\]\]", text[-1])))
+            text[-1] = re.sub(r"\[\[category:(.*?)\]\]", "", text[-1])
+
     text = text[0]
+
+    # getting categories if not collected
+    if "c" not in fields.keys():
+        fields["c"] = text_preprocessing(" ".join(re.findall(r"\[\[category:(.*?)\]\]", text)))
+        text = re.sub(r"\[\[category:(.*?)\]\]", "", text)
+
+    # remaining text contains body and infobox 
+    # getting infobox
+    text = text.split("\n")
+    fields["i"], line_number = get_infobox(text)
+    fields["i"] = text_preprocessing(fields["i"])
+    text = " ".join(text[line_number:])
+    
+    # fields["i"] = " ".join(re.findall(r"\{\{.*?infobox(.*?)\}\}", text, flags=re.DOTALL))
+    # fields["i"] = text_preprocessing(process_infobox(fields["i"]))
+    # text = re.sub(r"\{\{.*?infobox.*?\}\}", "", text, flags=re.DOTALL)
     
     # body left in text
     fields["b"] = text_preprocessing(text)
@@ -113,19 +144,23 @@ class Handler(xml.sax.ContentHandler):
             self.id = ""
     
     def characters(self, content):
+        if len(content) == 0:
+            return
         if self.current_tag == "title":
-            self.title += content
+            self.title = "".join([self.title, content])
         elif self.current_tag == "id":
-            self.id += content
+            self.id = "".join([self.id, content])
         elif self.current_tag == "text":
-            self.text += content
+            self.text = "".join([self.text, content])
     
     def endElement(self, name):
-        global pages
+        global pages, inverted_index
         if name == "page":
             pages += 1
-            # print("Page:", pages)
             data = get_fields(self.title.lower(), self.text.lower())
+            insert_into_inverted_index(data, pages)
+            if pages % 20000 == 0:
+                inverted_index = []
 
 
 
@@ -136,10 +171,3 @@ contentHandler = Handler()
 parser = xml.sax.make_parser()
 parser.setContentHandler(contentHandler)
 parser.parse(sys.argv[1])
-print("\n\n\n")
-print("Pages:", pages)
-print("Total tokens:", len(words))
-print("Total tokens in index:", len(tokens_in_index))
-with open("lexicon_porter.txt", "w") as file:
-    lexicon = "\n".join(sorted(tokens_in_index))
-    file.write(lexicon)
