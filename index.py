@@ -3,17 +3,76 @@ import xml.sax
 import sys
 from preprocessing import text_preprocessing
 
+
+if len(sys.argv) < 3:
+    print("Too few arguments")
+    quit()
 pages = 0
 tokens = 0
 words = set()
 tokens_in_index = {}
-inverted_index = []
-flag = 0
+tokens_offsets = {}
+inverted_index = {}
+index_path = sys.argv[2]
+
+
+def write_tokens():
+    with open(f"{index_path}tokens.txt", "w") as file:
+        entries = []
+        for entry in sorted(tokens_in_index):
+            new_entry = " ".join([str(entry), str(tokens_in_index[entry][0]), str(tokens_in_index[entry][1])])
+            entries.append(new_entry)
+        entries = "\n".join(entries)
+        file.write(entries)
+
+
+def write_offsets():
+    with open(f"{index_path}offsets.txt", "w") as file:
+        entries = []
+        for i in range(len(tokens_offsets)):
+            new_entry = " ".join([str(i), str(tokens_offsets[i][0]), str(tokens_offsets[i][1])])
+            entries.append(new_entry)
+        entries = "\n".join(entries)
+        file.write(entries)
+
+
+def write_to_file():
+    global tokens, tokens_in_index, inverted_index, tokens_offsets, index_path
+    current_offset = 0
+    prev_token = -1
+    out_file = open(f"{index_path}inverted_index.txt", "w")
+    for token in sorted(inverted_index):
+        if prev_token != token:
+            if prev_token in tokens_offsets.keys():
+                tokens_offsets[prev_token][1] = current_offset
+            tokens_offsets[token][0] = current_offset
+        entries = []
+        for doc in inverted_index[token]:
+            new_entry = str(doc[0])
+            if "t" in doc[1].keys():
+                new_entry = " ".join([new_entry, f"t:{doc[1]['t']}"])
+            if "i" in doc[1].keys():
+                new_entry = " ".join([new_entry, f"i:{doc[1]['i']}"])
+            if "c" in doc[1].keys():
+                new_entry = " ".join([new_entry, f"c:{doc[1]['c']}"])
+            if "b" in doc[1].keys():
+                new_entry = " ".join([new_entry, f"b:{doc[1]['b']}"])
+            if "r" in doc[1].keys():
+                new_entry = " ".join([new_entry, f"r:{doc[1]['r']}"])
+            if "l" in doc[1].keys():
+                new_entry = " ".join([new_entry, f"l:{doc[1]['l']}"])
+            entries.append(new_entry)
+        entries = "\n".join(entries)
+        entries += "\n"
+        out_file.write(entries)
+        current_offset += len(entries)
+        prev_token = token
 
 
 def insert_word(word):
-    global tokens, tokens_in_index
-    tokens_in_index[word] = [tokens, 0, -1, -1]
+    global tokens, tokens_in_index, tokens_offsets
+    tokens_in_index[word] = [tokens, 0]
+    tokens_offsets[tokens] = [-1, -1]
     tokens += 1
 
 
@@ -31,9 +90,10 @@ def insert_into_inverted_index(data, page_number):
             entries[word][key] += 1
     for word in entries:
         tokens_in_index[word][1] += 1
-        new_entry = {tokens_in_index[word][0]: entries[word]}
-        new_entry[tokens_in_index[word][0]]["p"] = page_number
-        inverted_index.append(new_entry)
+        if tokens_in_index[word][0] not in inverted_index.keys():
+            inverted_index[tokens_in_index[word][0]] = []
+        new_entry = (page_number, entries[word])
+        inverted_index[tokens_in_index[word][0]].append(new_entry)
 
 
 def split_on_links(text):
@@ -70,10 +130,11 @@ def get_infobox(lines):
             infobox_open = False
             last_line_infobox = i+1
         elif infobox_open:
+            # infobox_data = " ".join([infobox_data, line])
             line = line.split("=")
             if len(line) > 1:
-                for j in range(len(line)-1, 0, -1):
-                    infobox_data = " ".join([infobox_data, line[j]])
+                line = " ".join(line[1:])
+                infobox_data = " ".join([infobox_data, line])
         elif not infobox_open and len(re.findall(r"\{\{infobox", line)) > 0:
             infobox_open = True
             line = re.sub(r"\{\{infobox", "", line)
@@ -108,6 +169,11 @@ def get_fields(title, text):
         if "c" not in fields.keys():
             fields["c"] = text_preprocessing(" ".join(re.findall(r"\[\[category:(.*?)\]\]", text[-1])))
             text[-1] = re.sub(r"\[\[category:(.*?)\]\]", "", text[-1])
+        references1 = filter(lambda x: x not in["reflist", "refbegin", "refend", "cite"], re.findall(r"\{(.*)\}", text[-1]))
+        references2 = filter(lambda x: x not in["reflist", "refbegin", "refend", "cite"], re.findall(r"\[(.*)\]", text[-1]))
+        references = " ".join(references1)
+        references = " ".join(references2)
+        fields["r"] = text_preprocessing(references)
 
     text = text[0]
 
@@ -116,16 +182,12 @@ def get_fields(title, text):
         fields["c"] = text_preprocessing(" ".join(re.findall(r"\[\[category:(.*?)\]\]", text)))
         text = re.sub(r"\[\[category:(.*?)\]\]", "", text)
 
-    # remaining text contains body and infobox 
+    # remaining text contains body and infobox
     # getting infobox
     text = text.split("\n")
     fields["i"], line_number = get_infobox(text)
     fields["i"] = text_preprocessing(fields["i"])
     text = " ".join(text[line_number:])
-    
-    # fields["i"] = " ".join(re.findall(r"\{\{.*?infobox(.*?)\}\}", text, flags=re.DOTALL))
-    # fields["i"] = text_preprocessing(process_infobox(fields["i"]))
-    # text = re.sub(r"\{\{.*?infobox.*?\}\}", "", text, flags=re.DOTALL)
     
     # body left in text
     fields["b"] = text_preprocessing(text)
@@ -159,15 +221,15 @@ class Handler(xml.sax.ContentHandler):
             pages += 1
             data = get_fields(self.title.lower(), self.text.lower())
             insert_into_inverted_index(data, pages)
-            if pages % 20000 == 0:
-                inverted_index = []
+            # if pages % 20000 == 0:
+                # write_to_file()
+                # inverted_index = {}
 
-
-
-if len(sys.argv) == 1:
-    quit()
 
 contentHandler = Handler()
 parser = xml.sax.make_parser()
 parser.setContentHandler(contentHandler)
 parser.parse(sys.argv[1])
+write_to_file()
+write_tokens()
+write_offsets()
