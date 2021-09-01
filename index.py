@@ -1,7 +1,9 @@
 import re
 import xml.sax
 import sys
-from preprocessing import text_preprocessing
+from nltk.corpus import stopwords
+import Stemmer
+import os
 
 
 if len(sys.argv) < 3:
@@ -13,7 +15,12 @@ words = set()
 tokens_in_index = {}
 tokens_offsets = {}
 inverted_index = {}
+stopWords = set(stopwords.words("english"))
 index_path = sys.argv[2]
+if index_path[-1] != "/" or index_path[-1] != "\\":
+    index_path += "/"
+if not os.path.exists(index_path):
+    os.makedirs(index_path)
 
 
 def write_tokens():
@@ -140,6 +147,18 @@ def get_infobox(lines):
             line = re.sub(r"\{\{infobox", "", line)
             infobox_data = " ".join([infobox_data, line])
     return infobox_data, last_line_infobox
+
+
+def text_preprocessing(text):
+    text = re.sub(r"<!--.*-->", "", text) # Removing comments
+    text = re.sub(r"==.*==", "", text) # Removing section headings
+    text = re.sub(r"&.+;", "", text) # Removing special symbols like &gt; &lt;
+    text = re.sub(r"`|~|!|@|#|\$|%|\^|&|\*|\(|\)|-|_|=|\+|\||\\|\[|\]|\{|\}|;|:|'|\"|,|<|>|\.|/|\?|\n|\t", " ", text) # removing non alpha numeric
+    text = text.split()
+    text = list(filter(lambda x: x not in stopWords, text))
+    stemmer = Stemmer.Stemmer("english")
+    text = stemmer.stemWords(text)
+    return text
 
 
 def get_fields(title, text):
