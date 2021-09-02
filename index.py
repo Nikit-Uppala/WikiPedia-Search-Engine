@@ -6,7 +6,7 @@ import Stemmer
 import os
 
 
-if len(sys.argv) < 3:
+if len(sys.argv) < 4:
     print("Too few arguments")
     quit()
 pages = 0
@@ -74,12 +74,12 @@ def write_to_file():
         out_file.write(entries)
         current_offset += len(entries)
         prev_token = token
+    tokens_offsets[prev_token][1] = current_offset
 
 
 def insert_word(word):
     global tokens, tokens_in_index, tokens_offsets
     tokens_in_index[word] = [tokens, 0]
-    tokens_offsets[tokens] = [-1, -1]
     tokens += 1
 
 
@@ -96,6 +96,8 @@ def insert_into_inverted_index(data, page_number):
                 entries[word][key] = 0
             entries[word][key] += 1
     for word in entries:
+        if tokens_in_index[word][0] not in tokens_offsets.keys():
+            tokens_offsets[tokens_in_index[word][0]] = [-1, -1]
         tokens_in_index[word][1] += 1
         if tokens_in_index[word][0] not in inverted_index.keys():
             inverted_index[tokens_in_index[word][0]] = []
