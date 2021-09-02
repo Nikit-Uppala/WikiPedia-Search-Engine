@@ -57,17 +57,17 @@ def write_to_file():
         for doc in inverted_index[token]:
             new_entry = str(doc[0])
             if "t" in doc[1].keys():
-                new_entry = " ".join([new_entry, f"t:{doc[1]['t']}"])
+                new_entry = " ".join([new_entry, f"t{doc[1]['t']}"])
             if "i" in doc[1].keys():
-                new_entry = " ".join([new_entry, f"i:{doc[1]['i']}"])
+                new_entry = " ".join([new_entry, f"i{doc[1]['i']}"])
             if "c" in doc[1].keys():
-                new_entry = " ".join([new_entry, f"c:{doc[1]['c']}"])
+                new_entry = " ".join([new_entry, f"c{doc[1]['c']}"])
             if "b" in doc[1].keys():
-                new_entry = " ".join([new_entry, f"b:{doc[1]['b']}"])
+                new_entry = " ".join([new_entry, f"b{doc[1]['b']}"])
             if "r" in doc[1].keys():
-                new_entry = " ".join([new_entry, f"r:{doc[1]['r']}"])
+                new_entry = " ".join([new_entry, f"r{doc[1]['r']}"])
             if "l" in doc[1].keys():
-                new_entry = " ".join([new_entry, f"l:{doc[1]['l']}"])
+                new_entry = " ".join([new_entry, f"l{doc[1]['l']}"])
             entries.append(new_entry)
         entries = "\n".join(entries)
         entries += "\n"
