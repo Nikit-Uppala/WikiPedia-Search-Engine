@@ -13,6 +13,7 @@ pages = 0
 tokens = 0
 words = set()
 tokens_in_index = {}
+total_tokens = set()
 tokens_offsets = {}
 inverted_index = {}
 stopWords = set(stopwords.words("english"))
@@ -152,6 +153,9 @@ def get_infobox(lines):
 
 
 def text_preprocessing(text):
+    all_tokens = set(text.split())
+    for token in all_tokens:
+        total_tokens.add(token)
     text = re.sub(r"<!--.*-->", "", text) # Removing comments
     text = re.sub(r"==.*==", "", text) # Removing section headings
     text = re.sub(r"&.+;", "", text) # Removing special symbols like &gt; &lt;
@@ -254,3 +258,5 @@ parser.parse(sys.argv[1])
 write_to_file()
 write_tokens()
 write_offsets()
+with open(f"{sys.argv[3]}", "w") as stat_file:
+    stat_file.write(f"{len(total_tokens)} {len(tokens_in_index)}")
