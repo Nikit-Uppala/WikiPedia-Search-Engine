@@ -24,31 +24,45 @@ if not os.path.exists(index_path):
     os.makedirs(index_path)
 
 
+def printError():
+    print("Can't write to this directory")
+    quit()
+
+
 def write_tokens():
-    with open(f"{index_path}tokens.txt", "w") as file:
-        entries = []
-        for entry in sorted(tokens_in_index):
-            new_entry = " ".join([str(entry), str(tokens_in_index[entry][0]), str(tokens_in_index[entry][1])])
-            entries.append(new_entry)
-        entries = "\n".join(entries)
-        file.write(entries)
+    try:
+        with open(f"{index_path}tokens.txt", "w") as file:
+            entries = []
+            for entry in sorted(tokens_in_index):
+                new_entry = " ".join([str(entry), str(tokens_in_index[entry][0]), str(tokens_in_index[entry][1])])
+                entries.append(new_entry)
+            entries = "\n".join(entries)
+            file.write(entries)
+    except:
+        printError()
 
 
 def write_offsets():
-    with open(f"{index_path}offsets.txt", "w") as file:
-        entries = []
-        for i in range(len(tokens_offsets)):
-            new_entry = " ".join([str(i), str(tokens_offsets[i][0]), str(tokens_offsets[i][1])])
-            entries.append(new_entry)
-        entries = "\n".join(entries)
-        file.write(entries)
+    try:
+        with open(f"{index_path}offsets.txt", "w") as file:
+            entries = []
+            for i in range(len(tokens_offsets)):
+                new_entry = " ".join([str(i), str(tokens_offsets[i][0]), str(tokens_offsets[i][1])])
+                entries.append(new_entry)
+            entries = "\n".join(entries)
+            file.write(entries)
+    except:
+        printError()
 
 
 def write_to_file():
     global tokens, tokens_in_index, inverted_index, tokens_offsets, index_path
     current_offset = 0
     prev_token = -1
-    out_file = open(f"{index_path}inverted_index.txt", "w")
+    try:
+        out_file = open(f"{index_path}inverted_index.txt", "w")
+    except:
+        printError()
     for token in sorted(inverted_index):
         if prev_token != token:
             if prev_token in tokens_offsets.keys():

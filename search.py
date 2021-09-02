@@ -25,7 +25,7 @@ def text_preprocessing(text):
     text = re.sub(r"\#|\@|\,|\/|\\|\;", " ", text) # removing non alpha numeric
     text = text.split()
     query = text
-    text = list(filter(lambda x: x not in stopWords, text))
+    text = list(filter(lambda x: len(x) > 0 and x not in stopWords, text))
     stem = Stemmer.Stemmer("english")
     for i in range(len(text)):
         stemmed = stem.stemWord(text[i])
