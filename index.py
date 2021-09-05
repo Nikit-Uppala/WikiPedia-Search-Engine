@@ -4,6 +4,7 @@ import sys
 from nltk.corpus import stopwords
 import Stemmer
 import os
+from encode_decode import encode
 
 
 if len(sys.argv) < 4:
@@ -34,7 +35,7 @@ def write_tokens():
         with open(f"{index_path}tokens.txt", "w") as file:
             entries = []
             for entry in sorted(tokens_in_index):
-                new_entry = " ".join([str(entry), str(tokens_in_index[entry][0]), str(tokens_in_index[entry][1])])
+                new_entry = " ".join([str(entry), encode(tokens_in_index[entry][0]), encode(tokens_in_index[entry][1])])
                 entries.append(new_entry)
             entries = "\n".join(entries)
             file.write(entries)
@@ -47,7 +48,7 @@ def write_offsets():
         with open(f"{index_path}offsets.txt", "w") as file:
             entries = []
             for i in range(len(tokens_offsets)):
-                new_entry = " ".join([str(i), str(tokens_offsets[i][0]), str(tokens_offsets[i][1])])
+                new_entry = " ".join([encode(i), encode(tokens_offsets[i][0]), encode(tokens_offsets[i][1])])
                 entries.append(new_entry)
             entries = "\n".join(entries)
             file.write(entries)
@@ -70,19 +71,19 @@ def write_to_file():
             tokens_offsets[token][0] = current_offset
         entries = []
         for doc in inverted_index[token]:
-            new_entry = str(doc[0])
+            new_entry = str(encode(doc[0]))
             if "t" in doc[1].keys():
-                new_entry = " ".join([new_entry, f"t{doc[1]['t']}"])
+                new_entry = " ".join([new_entry, f"t{encode(doc[1]['t'])}"])
             if "i" in doc[1].keys():
-                new_entry = " ".join([new_entry, f"i{doc[1]['i']}"])
+                new_entry = " ".join([new_entry, f"i{encode(doc[1]['i'])}"])
             if "c" in doc[1].keys():
-                new_entry = " ".join([new_entry, f"c{doc[1]['c']}"])
+                new_entry = " ".join([new_entry, f"c{encode(doc[1]['c'])}"])
             if "b" in doc[1].keys():
-                new_entry = " ".join([new_entry, f"b{doc[1]['b']}"])
+                new_entry = " ".join([new_entry, f"b{encode(doc[1]['b'])}"])
             if "r" in doc[1].keys():
-                new_entry = " ".join([new_entry, f"r{doc[1]['r']}"])
+                new_entry = " ".join([new_entry, f"r{encode(doc[1]['r'])}"])
             if "l" in doc[1].keys():
-                new_entry = " ".join([new_entry, f"l{doc[1]['l']}"])
+                new_entry = " ".join([new_entry, f"l{encode(doc[1]['l'])}"])
             entries.append(new_entry)
         entries = "\n".join(entries)
         entries += "\n"

@@ -4,6 +4,7 @@ import re
 import sys
 import os
 import json
+from encode_decode import decode
 
 
 if len(sys.argv) < 3:
@@ -52,15 +53,15 @@ def get_posting_lists(token):
         return lists
     try:
         with open(inverted_index_file, "r") as file:
-            start_seek = tokens_offsets[tokens_in_index[token][0]][0]
-            end_seek = tokens_offsets[tokens_in_index[token][0]][1]
+            start_seek = decode(tokens_offsets[tokens_in_index[token][0]][0])
+            end_seek = decode(tokens_offsets[tokens_in_index[token][0]][1])
             file.seek(start_seek)
             data = file.read(end_seek - start_seek)
             data = data.split("\n")
             for line in data:
                 if len(line) == 0:
                     continue
-                doc_id = int(line.split()[0])
+                doc_id = decode(line.split()[0])
                 if "t" in line:
                     lists["title"].append(doc_id)
                 if "i" in line:
@@ -75,6 +76,7 @@ def get_posting_lists(token):
                     lists["category"].append(doc_id)
         return lists
     except:
+        print("From inverted index")
         printError()
 
 
@@ -96,14 +98,14 @@ def get_tokens(data):
     global tokens_in_index
     for line in data:
         line = line.split()
-        tokens_in_index[line[0]] = [int(line[1]), int(line[2])]
+        tokens_in_index[line[0]] = [line[1], line[2]]
 
 
 def get_offsets(data):
     global tokens_offsets
     for line in data:
         line = line.split()
-        tokens_offsets[int(line[0])] = [int(line[1]), int(line[2])]
+        tokens_offsets[line[0]] = [line[1], line[2]]
 
 
 inverted_index_path = sys.argv[1]
@@ -131,6 +133,7 @@ try:
         data = file.readlines()
         get_offsets(data)
 except:
+    print("From offsets")
     printError()
 
 query = sys.argv[2].lower()
