@@ -21,8 +21,7 @@ def printError():
 
 def text_preprocessing(text):
     global query_tokens, query
-    text = re.sub(r"&.+;", "", text) # Removing special symbols like &gt; &lt;
-    text = re.sub(r"\#|\@|\,|\/|\\|\;", " ", text) # removing non alpha numeric
+    text = re.sub(r"`|~|!|@|#|\$|%|\^|&|\*|\(|\)|-|_|=|\+|\||\\|\[|\]|\{|\}|;|:|'|\"|,|<|>|\.|/|\?|\n|\t", " ", text) # removing non alpha numeric
     text = text.split()
     query = text
     text = list(filter(lambda x: len(x) > 0 and x not in stopWords, text))
@@ -56,7 +55,6 @@ def get_posting_lists(token):
             start_seek = tokens_offsets[tokens_in_index[token][0]][0]
             end_seek = tokens_offsets[tokens_in_index[token][0]][1]
             file.seek(start_seek)
-            print(tokens_in_index[token][1])
             data = file.read(end_seek - start_seek)
             data = data.split("\n")
             for line in data:
@@ -138,5 +136,5 @@ except:
 query = sys.argv[2].lower()
 query_tokens = {}
 query = re.sub(r"[tibrlc]:", " ", query)
-query = text_preprocessing(query)
+text_preprocessing(query)
 execute_query()
