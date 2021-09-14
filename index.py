@@ -4,7 +4,7 @@ import sys
 from nltk.corpus import stopwords
 import Stemmer
 import os
-from encode_decode import encode
+from encode_decode import encode, decode
 
 
 if len(sys.argv) < 4:
@@ -15,6 +15,7 @@ numFiles = 0
 words = set()
 tokens_in_index = {}
 inverted_index = {}
+num_tokens = 0
 stopWords = set(stopwords.words("english"))
 current_title_offset = 0
 index_path = sys.argv[2]
@@ -22,7 +23,27 @@ if index_path[-1] != "/" and index_path[-1] != "\\":
     index_path += "/"
 if not os.path.exists(index_path):
     os.makedirs(index_path)
+first_letters = [chr(x) for x in range(ord('0'), 1+ord('9'))]
+first_letters.extend([chr(x) for x  in range(ord('a'), 1+ord('z'))])
 
+
+def open_files(flag, mode):
+    files = []
+    files.append(open(f"{index_path}tokens_offsets{flag}.txt", mode))
+    files.append(open(f"{index_path}tokens{flag}.txt", mode))
+    files.append(open(f"{index_path}inverted_index{flag}.txt", mode))
+    return files
+
+
+def close_files(files):
+    for file in files:
+        file.close()
+
+
+temp = open_files(0, "w")
+close_files(temp)
+temp = open_files(1, "w")
+close_files(temp)
 titles_file = open(f"{index_path}titles.txt", "w")
 titles_offset_file = open(f"{index_path}titles_offsets.txt", "w")
 
@@ -37,60 +58,154 @@ def write_title(docID, title):
     titles_file.write(write_string)
     new_offset = current_title_offset + len(write_string)
     offset_string = " ".join([encode(docID), encode(current_title_offset), encode(new_offset)])
-    offset_string += "\n"
+    offset_string = offset_string + "\n"
     titles_offset_file.write(offset_string)
     current_title_offset = new_offset
 
 
 def write_tokens():
-    try:
-        with open(f"{index_path}tokens{numFiles}.txt", "w") as file:
-            entries = []
-            for entry in sorted(tokens_in_index):
-                new_entry = " ".join([str(entry), encode(tokens_in_index[entry][0]), encode(tokens_in_index[entry][1]), 
-                encode(tokens_in_index[entry][2])])
-                entries.append(new_entry)
-            entries = "\n".join(entries)
-            file.write(entries)
-    except:
-        printError()
+    pass
 
+
+def get_token_offsets(file):
+    data = file.readlines()
+    offsets = {}
+    for letter in first_letters:
+        offsets[letter] = [0, 0]
+    for line in data:
+        line = line.strip().split()
+        if len(line) > 0:
+            offsets[line[0]] = [decode(line[1]), decode(line[2])]
+    return offsets
+
+
+def get_tokens(file, details):
+    tokens_in_file = {}
+    start_seek = details[0]
+    end_seek = details[1]
+    file.seek(start_seek)
+    data = file.read(end_seek-start_seek).split("\n")
+    for line in data:
+        line = line.strip().split()
+        if len(line) > 0:
+            tokens_in_file[line[0]] = [decode(line[1]), decode(line[2]), decode(line[3])]
+    return tokens_in_file
+
+
+def write_index_from_file(inp_file, out_file, offsets):
+    inp_file.seek(offsets[1])
+    offset_increase = 0
+    lines = offsets[0]
+    per_iter = 100000
+    while lines > 0:
+        data = "\n".join([x.strip() for x in inp_file.readlines(lines) if len(x.strip()) > 0])
+        data = data + "\n"
+        offset_increase += len(data)
+        out_file.write(data)
+        lines = max(0, lines-per_iter)
+    return offset_increase
+
+
+def write_index_from_memory(file, token):
+    global tokens_in_index, inverted_index
+    offset_increase = 0
+    entries = []
+    for entry in inverted_index[token]:
+        docId = encode(entry[0])
+        new_entry = docId
+        if "t" in entry[1]:
+            new_entry = " ".join([new_entry, f"t{entry[1]['t']}"])
+        if "i" in entry[1]:
+            new_entry = " ".join([new_entry, f"i{entry[1]['i']}"])
+        if "b" in entry[1]:
+            new_entry = " ".join([new_entry, f"b{entry[1]['b']}"])
+        if "r" in entry[1]:
+            new_entry = " ".join([new_entry, f"r{entry[1]['r']}"])
+        if "l" in entry[1]:
+            new_entry = " ".join([new_entry, f"l{entry[1]['l']}"])
+        if "c" in entry[1]:
+            new_entry = " ".join([new_entry, f"c{entry[1]['c']}"])
+        entries.append(new_entry)
+    entries = "\n".join(entries)
+    entries = entries + "\n"
+    file.write(entries)
+    offset_increase += len(entries)
+    return offset_increase
+
+
+def write_token_info(file, token, details):
+    data = " ".join([token, encode(details[0]), encode(details[1]), encode(details[2])])
+    data = data + "\n"
+    offset_increase = len(data)
+    file.write(data)
+    return offset_increase
+
+
+def write_token_offset(file, letter, details):
+    data = " ".join([letter, encode(details[0]), encode(details[1])])
+    data = data + "\n"
+    file.write(data)
+        
 
 def write_to_file():
-    global tokens_in_index, inverted_index, index_path
+    global tokens_in_index, inverted_index, index_path, numFiles, num_tokens
+    num_tokens = 0
+    inp_file = (numFiles+1)%2
+    out_file = numFiles%2
+    inp_files = open_files(inp_file, "r")
+    out_files = open_files(out_file, "w")
+    token_offsets = get_token_offsets(inp_files[0])
     current_offset = 0
-    prev_token = -1
-    try:
-        out_file = open(f"{index_path}inverted_index{numFiles}.txt", "w")
-    except:
-        printError()
-    for token in sorted(inverted_index):
-        if prev_token != token:
-            if prev_token in tokens_in_index.keys():
-                tokens_in_index[prev_token][2] = current_offset
-            tokens_in_index[token][1] = current_offset
-        entries = []
-        for doc in inverted_index[token]:
-            new_entry = str(encode(doc[0]))
-            if "t" in doc[1].keys():
-                new_entry = " ".join([new_entry, f"t{encode(doc[1]['t'])}"])
-            if "i" in doc[1].keys():
-                new_entry = " ".join([new_entry, f"i{encode(doc[1]['i'])}"])
-            if "c" in doc[1].keys():
-                new_entry = " ".join([new_entry, f"c{encode(doc[1]['c'])}"])
-            if "b" in doc[1].keys():
-                new_entry = " ".join([new_entry, f"b{encode(doc[1]['b'])}"])
-            if "r" in doc[1].keys():
-                new_entry = " ".join([new_entry, f"r{encode(doc[1]['r'])}"])
-            if "l" in doc[1].keys():
-                new_entry = " ".join([new_entry, f"l{encode(doc[1]['l'])}"])
-            entries.append(new_entry)
-        entries = "\n".join(entries)
-        entries += "\n"
-        out_file.write(entries)
-        current_offset += len(entries)
-        prev_token = token
-    tokens_in_index[prev_token][2] = current_offset
+    current_token_offset = 0
+    tokens_2 = list(sorted(tokens_in_index.keys()))
+    p2 = 0
+    len2 = len(tokens_2)
+    for letter in first_letters:
+        tokens_in_file = {}
+        if letter in token_offsets and token_offsets[letter][0] != token_offsets[letter][1]:
+            tokens_in_file = get_tokens(inp_files[1], token_offsets[letter])
+        tokens_1 = list(sorted(tokens_in_file.keys()))
+        p1 = 0
+        len1 = len(tokens_1)
+        frequency = 0
+        token_offsets[letter][0] = current_token_offset
+        while p1 < len1 and p2 < len2:
+            if tokens_1[p1] <= tokens_2[p2]:
+                tokens_in_file[tokens_1[p1]][1] = current_offset
+                current_offset += write_index_from_file(inp_files[2], out_files[2], tokens_in_file[tokens_1[p1]])
+                if tokens_1[p1] not in tokens_in_index.keys():
+                    tokens_in_file[tokens_1[p1]][2] = current_offset
+                    current_token_offset += write_token_info(out_files[1], tokens_1[p1], tokens_in_file[tokens_1[p1]])
+                else:
+                    tokens_in_index[tokens_1[p1]][1] = tokens_in_file[tokens_1[p1]][1]
+                    tokens_in_index[tokens_1[p1]][0] += tokens_in_file[tokens_1[p1]][0]
+                p1 += 1
+                frequency += 1
+            else:
+                if tokens_2[p2] not in tokens_in_file.keys():
+                    frequency += 1
+                    tokens_in_index[tokens_2[p2]][1] = current_offset
+                current_offset += write_index_from_memory(out_files[2], tokens_2[p2])
+                tokens_in_index[tokens_2[p2]][2] = current_offset
+                current_token_offset += write_token_info(out_files[1], tokens_2[p2], tokens_in_index[tokens_2[p2]])
+                p2 += 1
+        while p2 < len2 and tokens_2[p2][0] == letter:
+            if tokens_2[p2] not in tokens_in_file.keys():
+                tokens_in_index[tokens_2[p2]][1] = current_offset
+                frequency += 1
+            current_offset += write_index_from_memory(out_files[2], tokens_2[p2])
+            tokens_in_index[tokens_2[p2]][2] = current_offset
+            current_token_offset += write_token_info(out_files[1], tokens_2[p2], tokens_in_index[tokens_2[p2]])
+            p2 += 1
+        token_offsets[letter][1] = current_token_offset
+        num_tokens += frequency
+        write_token_offset(out_files[0], letter, token_offsets[letter])
+    close_files(inp_files)
+    open_files(inp_file, "w")
+    close_files(inp_files)
+    close_files(out_files)
+        
+
 
 
 def insert_word(word):
@@ -163,7 +278,7 @@ def get_infobox(lines):
 def text_preprocessing(text):
     text = text.strip().encode("ascii", errors="ignore").decode()
     text = re.sub(r"<!--.*-->", "", text) # Removing comments
-    text = re.sub(r"==.*==", "", text) # Removing section headings
+    # text = re.sub(r"==.*==", "", text) # Removing section headings
     text = re.sub(r"&.+;", "", text) # Removing special symbols like &gt; &lt;
     text = re.sub(r"`|~|!|@|#|\$|%|\^|&|\*|\(|\)|-|_|=|\+|\||\\|\[|\]|\{|\}|;|:|'|\"|,|<|>|\.|/|\?|\n|\t", " ", text) # removing non alpha numeric
     text = text.split()
@@ -256,9 +371,9 @@ class Handler(xml.sax.ContentHandler):
             write_title(pages, self.title)
             if pages % 30000 == 0:
                 write_to_file()
-                write_tokens()
-                inverted_index.clear()
-                tokens_in_index.clear()
+                # print(num_tokens)
+                inverted_index = {}
+                tokens_in_index = {}
                 numFiles += 1
 
 
@@ -268,11 +383,11 @@ parser.setContentHandler(contentHandler)
 parser.parse(sys.argv[1])
 if len(inverted_index) > 0:
     write_to_file()
-    write_tokens()
     numFiles += 1
+    print(num_tokens)
 with open(f"{index_path}num_files.txt", "w") as file:
     file.write(str(numFiles))
 titles_offset_file.close()
 titles_file.close()
 with open(f"{sys.argv[3]}", "w") as stat_file:
-    stat_file.write(f"{len(tokens_in_index)}")
+    stat_file.write(f"{num_tokens}")
