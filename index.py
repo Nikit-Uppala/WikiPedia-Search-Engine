@@ -11,44 +11,44 @@ if len(sys.argv) < 4:
     print("Too few arguments")
     quit()
 pages = 0
-tokens = 0
+numFiles = 0
 words = set()
 tokens_in_index = {}
-total_tokens = set()
-tokens_offsets = {}
 inverted_index = {}
 stopWords = set(stopwords.words("english"))
+current_title_offset = 0
 index_path = sys.argv[2]
-if index_path[-1] != "/" or index_path[-1] != "\\":
+if index_path[-1] != "/" and index_path[-1] != "\\":
     index_path += "/"
 if not os.path.exists(index_path):
     os.makedirs(index_path)
 
+titles_file = open(f"{index_path}titles.txt", "w")
+titles_offset_file = open(f"{index_path}titles_offsets.txt", "w")
 
 def printError():
     print("Can't write to this directory")
     quit()
 
 
+def write_title(docID, title):
+    global current_title_offset, titles_offset_file, titles_file
+    write_string = title + "\n"
+    titles_file.write(write_string)
+    new_offset = current_title_offset + len(write_string)
+    offset_string = " ".join([encode(docID), encode(current_title_offset), encode(new_offset)])
+    offset_string += "\n"
+    titles_offset_file.write(offset_string)
+    current_title_offset = new_offset
+
+
 def write_tokens():
     try:
-        with open(f"{index_path}tokens.txt", "w") as file:
+        with open(f"{index_path}tokens{numFiles}.txt", "w") as file:
             entries = []
             for entry in sorted(tokens_in_index):
-                new_entry = " ".join([str(entry), encode(tokens_in_index[entry][0]), encode(tokens_in_index[entry][1])])
-                entries.append(new_entry)
-            entries = "\n".join(entries)
-            file.write(entries)
-    except:
-        printError()
-
-
-def write_offsets():
-    try:
-        with open(f"{index_path}offsets.txt", "w") as file:
-            entries = []
-            for i in range(len(tokens_offsets)):
-                new_entry = " ".join([encode(i), encode(tokens_offsets[i][0]), encode(tokens_offsets[i][1])])
+                new_entry = " ".join([str(entry), encode(tokens_in_index[entry][0]), encode(tokens_in_index[entry][1]), 
+                encode(tokens_in_index[entry][2])])
                 entries.append(new_entry)
             entries = "\n".join(entries)
             file.write(entries)
@@ -57,18 +57,18 @@ def write_offsets():
 
 
 def write_to_file():
-    global tokens, tokens_in_index, inverted_index, tokens_offsets, index_path
+    global tokens_in_index, inverted_index, index_path
     current_offset = 0
     prev_token = -1
     try:
-        out_file = open(f"{index_path}inverted_index.txt", "w")
+        out_file = open(f"{index_path}inverted_index{numFiles}.txt", "w")
     except:
         printError()
     for token in sorted(inverted_index):
         if prev_token != token:
-            if prev_token in tokens_offsets.keys():
-                tokens_offsets[prev_token][1] = current_offset
-            tokens_offsets[token][0] = current_offset
+            if prev_token in tokens_in_index.keys():
+                tokens_in_index[prev_token][2] = current_offset
+            tokens_in_index[token][1] = current_offset
         entries = []
         for doc in inverted_index[token]:
             new_entry = str(encode(doc[0]))
@@ -90,13 +90,12 @@ def write_to_file():
         out_file.write(entries)
         current_offset += len(entries)
         prev_token = token
-    tokens_offsets[prev_token][1] = current_offset
+    tokens_in_index[prev_token][2] = current_offset
 
 
 def insert_word(word):
-    global tokens, tokens_in_index, tokens_offsets
-    tokens_in_index[word] = [tokens, 0]
-    tokens += 1
+    global tokens_in_index
+    tokens_in_index[word] = [0, -1, -1]
 
 
 def insert_into_inverted_index(data, page_number):
@@ -112,13 +111,11 @@ def insert_into_inverted_index(data, page_number):
                 entries[word][key] = 0
             entries[word][key] += 1
     for word in entries:
-        if tokens_in_index[word][0] not in tokens_offsets.keys():
-            tokens_offsets[tokens_in_index[word][0]] = [-1, -1]
-        tokens_in_index[word][1] += 1
-        if tokens_in_index[word][0] not in inverted_index.keys():
-            inverted_index[tokens_in_index[word][0]] = []
+        tokens_in_index[word][0] += 1
+        if word not in inverted_index.keys():
+            inverted_index[word] = []
         new_entry = (page_number, entries[word])
-        inverted_index[tokens_in_index[word][0]].append(new_entry)
+        inverted_index[word].append(new_entry)
 
 
 def split_on_links(text):
@@ -155,11 +152,7 @@ def get_infobox(lines):
             infobox_open = False
             last_line_infobox = i+1
         elif infobox_open:
-            # infobox_data = " ".join([infobox_data, line])
-            line = line.split("=")
-            if len(line) > 1:
-                line = " ".join(line[1:])
-                infobox_data = " ".join([infobox_data, line])
+            infobox_data = " ".join([infobox_data, line])
         elif not infobox_open and len(re.findall(r"\{\{infobox", line)) > 0:
             infobox_open = True
             line = re.sub(r"\{\{infobox", "", line)
@@ -168,9 +161,7 @@ def get_infobox(lines):
 
 
 def text_preprocessing(text):
-    all_tokens = set(text.split())
-    for token in all_tokens:
-        total_tokens.add(token)
+    text = text.strip().encode("ascii", errors="ignore").decode()
     text = re.sub(r"<!--.*-->", "", text) # Removing comments
     text = re.sub(r"==.*==", "", text) # Removing section headings
     text = re.sub(r"&.+;", "", text) # Removing special symbols like &gt; &lt;
@@ -256,22 +247,32 @@ class Handler(xml.sax.ContentHandler):
             self.text = "".join([self.text, content])
     
     def endElement(self, name):
-        global pages, inverted_index
+        global pages, inverted_index, tokens_in_index, numFiles, titles_file, titles_offset_file
         if name == "page":
             pages += 1
+            self.title = self.title.strip()
             data = get_fields(self.title.lower(), self.text.lower())
             insert_into_inverted_index(data, pages)
-            # if pages % 20000 == 0:
-                # write_to_file()
-                # inverted_index = {}
+            write_title(pages, self.title)
+            if pages % 30000 == 0:
+                write_to_file()
+                write_tokens()
+                inverted_index.clear()
+                tokens_in_index.clear()
+                numFiles += 1
 
 
 contentHandler = Handler()
 parser = xml.sax.make_parser()
 parser.setContentHandler(contentHandler)
 parser.parse(sys.argv[1])
-write_to_file()
-write_tokens()
-write_offsets()
+if len(inverted_index) > 0:
+    write_to_file()
+    write_tokens()
+    numFiles += 1
+with open(f"{index_path}num_files.txt", "w") as file:
+    file.write(str(numFiles))
+titles_offset_file.close()
+titles_file.close()
 with open(f"{sys.argv[3]}", "w") as stat_file:
-    stat_file.write(f"{len(total_tokens)} {len(tokens_in_index)}")
+    stat_file.write(f"{len(tokens_in_index)}")
