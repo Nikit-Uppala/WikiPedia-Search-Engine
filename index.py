@@ -7,7 +7,7 @@ import os
 from encode_decode import encode, decode
 
 
-if len(sys.argv) < 4:
+if len(sys.argv) < 3:
     print("Too few arguments")
     quit()
 pages = 0
@@ -111,17 +111,17 @@ def write_index_from_memory(file, token):
         docId = encode(entry[0])
         new_entry = docId
         if "t" in entry[1]:
-            new_entry = " ".join([new_entry, f"t{entry[1]['t']}"])
+            new_entry = " ".join([new_entry, f"t{encode(100 * entry[1]['t'])}"])
         if "i" in entry[1]:
-            new_entry = " ".join([new_entry, f"i{entry[1]['i']}"])
+            new_entry = " ".join([new_entry, f"i{encode(20 * entry[1]['i'])}"])
         if "b" in entry[1]:
-            new_entry = " ".join([new_entry, f"b{entry[1]['b']}"])
+            new_entry = " ".join([new_entry, f"b{encode(entry[1]['b'])}"])
         if "r" in entry[1]:
-            new_entry = " ".join([new_entry, f"r{entry[1]['r']}"])
+            new_entry = " ".join([new_entry, f"r{encode(entry[1]['r'])}"])
         if "l" in entry[1]:
-            new_entry = " ".join([new_entry, f"l{entry[1]['l']}"])
+            new_entry = " ".join([new_entry, f"l{encode(entry[1]['l'])}"])
         if "c" in entry[1]:
-            new_entry = " ".join([new_entry, f"c{entry[1]['c']}"])
+            new_entry = " ".join([new_entry, f"c{encode(entry[1]['c'])}"])
         entries.append(new_entry)
     entries = "\n".join(entries)
     entries = entries + "\n"
@@ -175,6 +175,8 @@ def write_to_file():
             tokens_1 = list(sorted(tokens_in_file.keys()))
             p1 = 0
             len1 = len(tokens_1)
+            if letter == "h" and "halifax" in tokens_1:
+                print("Hello")
             while p1 < len1 and p2 < len2:
                 if tokens_1[p1] <= tokens_2[p2]:
                     tokens_in_file[tokens_1[p1]][1] = current_offset
@@ -410,9 +412,7 @@ if len(inverted_index) > 0:
     write_to_file()
     numFiles += 1
 print(num_tokens)
-with open(f"{index_path}num_files.txt", "w") as file:
-    file.write(str(numFiles))
+with open(f"{index_path}imp_data.txt", "w") as file:
+    file.write(str((numFiles+1)%2) + " " + str(pages))
 titles_offset_file.close()
 titles_file.close()
-with open(f"{sys.argv[3]}", "w") as stat_file:
-    stat_file.write(f"{num_tokens}")
