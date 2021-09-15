@@ -79,12 +79,9 @@ def get_token_offsets(file):
     return offsets
 
 
-def get_tokens(file, details):
+def get_tokens(data):
+    data = data.strip().split("\n")
     tokens_in_file = {}
-    start_seek = details[0]
-    end_seek = details[1]
-    file.seek(start_seek)
-    data = file.read(end_seek-start_seek).split("\n")
     for line in data:
         line = line.strip().split()
         if len(line) > 0:
@@ -162,15 +159,43 @@ def write_to_file():
     len2 = len(tokens_2)
     for letter in first_letters:
         tokens_in_file = {}
-        if letter in token_offsets and token_offsets[letter][0] != token_offsets[letter][1]:
-            tokens_in_file = get_tokens(inp_files[1], token_offsets[letter])
-        tokens_1 = list(sorted(tokens_in_file.keys()))
-        p1 = 0
-        len1 = len(tokens_1)
-        frequency = 0
+        bytes_to_read = token_offsets[letter][1] - token_offsets[letter][0]
+        buffer = min(100000, bytes_to_read)
+        inp_files[1].seek(token_offsets[letter][0])
         token_offsets[letter][0] = current_token_offset
-        while p1 < len1 and p2 < len2:
-            if tokens_1[p1] <= tokens_2[p2]:
+        frequency = 0
+        while bytes_to_read > 0:
+            data = inp_files[1].read(buffer)
+            if len(data) <= 0 or data[-1] != "\n":
+                data = "".join([data, inp_files[1].readline()])
+            bytes_to_read = bytes_to_read - len(data)
+            data = data.rstrip()
+            buffer = min(buffer, bytes_to_read)
+            tokens_in_file = get_tokens(data)
+            tokens_1 = list(sorted(tokens_in_file.keys()))
+            p1 = 0
+            len1 = len(tokens_1)
+            while p1 < len1 and p2 < len2:
+                if tokens_1[p1] <= tokens_2[p2]:
+                    tokens_in_file[tokens_1[p1]][1] = current_offset
+                    current_offset += write_index_from_file(inp_files[2], out_files[2], tokens_in_file[tokens_1[p1]])
+                    if tokens_1[p1] not in tokens_in_index.keys():
+                        tokens_in_file[tokens_1[p1]][2] = current_offset
+                        current_token_offset += write_token_info(out_files[1], tokens_1[p1], tokens_in_file[tokens_1[p1]])
+                    else:
+                        tokens_in_index[tokens_1[p1]][1] = tokens_in_file[tokens_1[p1]][1]
+                        tokens_in_index[tokens_1[p1]][0] += tokens_in_file[tokens_1[p1]][0]
+                    p1 += 1
+                    frequency += 1
+                else:
+                    if tokens_2[p2] not in tokens_in_file.keys():
+                        frequency += 1
+                        tokens_in_index[tokens_2[p2]][1] = current_offset
+                    current_offset += write_index_from_memory(out_files[2], tokens_2[p2])
+                    tokens_in_index[tokens_2[p2]][2] = current_offset
+                    current_token_offset += write_token_info(out_files[1], tokens_2[p2], tokens_in_index[tokens_2[p2]])
+                    p2 += 1
+            while p1 < len1:
                 tokens_in_file[tokens_1[p1]][1] = current_offset
                 current_offset += write_index_from_file(inp_files[2], out_files[2], tokens_in_file[tokens_1[p1]])
                 if tokens_1[p1] not in tokens_in_index.keys():
@@ -181,14 +206,14 @@ def write_to_file():
                     tokens_in_index[tokens_1[p1]][0] += tokens_in_file[tokens_1[p1]][0]
                 p1 += 1
                 frequency += 1
-            else:
+            while p2 < len2 and tokens_2[p2] <= tokens_1[-1]:
                 if tokens_2[p2] not in tokens_in_file.keys():
-                    frequency += 1
                     tokens_in_index[tokens_2[p2]][1] = current_offset
+                    frequency += 1
                 current_offset += write_index_from_memory(out_files[2], tokens_2[p2])
                 tokens_in_index[tokens_2[p2]][2] = current_offset
                 current_token_offset += write_token_info(out_files[1], tokens_2[p2], tokens_in_index[tokens_2[p2]])
-                p2 += 1
+                p2 += 1    
         while p2 < len2 and tokens_2[p2][0] == letter:
             if tokens_2[p2] not in tokens_in_file.keys():
                 tokens_in_index[tokens_2[p2]][1] = current_offset
@@ -384,7 +409,7 @@ parser.parse(sys.argv[1])
 if len(inverted_index) > 0:
     write_to_file()
     numFiles += 1
-    print(num_tokens)
+print(num_tokens)
 with open(f"{index_path}num_files.txt", "w") as file:
     file.write(str(numFiles))
 titles_offset_file.close()
