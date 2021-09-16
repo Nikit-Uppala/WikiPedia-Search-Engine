@@ -5,6 +5,7 @@ from nltk.corpus import stopwords
 import Stemmer
 import os
 from encode_decode import encode, decode
+from bz2file import BZ2File
 
 
 if len(sys.argv) < 3:
@@ -46,25 +47,24 @@ temp = open_files(1, "w")
 close_files(temp)
 titles_file = open(f"{index_path}titles.txt", "w")
 titles_offset_file = open(f"{index_path}titles_offsets.txt", "w")
+ids_file = open(f"{index_path}ids.txt", "w")
 
 def printError():
     print("Can't write to this directory")
     quit()
 
 
-def write_title(docID, title):
+def write_title(page, docID, title):
     global current_title_offset, titles_offset_file, titles_file
-    write_string = title + "\n"
-    titles_file.write(write_string)
-    new_offset = current_title_offset + len(write_string)
-    offset_string = " ".join([encode(docID), encode(current_title_offset), encode(new_offset)])
+    title = title.encode("ascii", errors="ignore").decode()
+    write_string = " ".join([encode(int(docID)), title])
+    write_string = write_string + "\n"
+    bytes_written = titles_file.write(write_string)
+    new_offset = current_title_offset + bytes_written
+    offset_string = " ".join([encode(page), encode(current_title_offset), encode(new_offset)])
     offset_string = offset_string + "\n"
     titles_offset_file.write(offset_string)
     current_title_offset = new_offset
-
-
-def write_tokens():
-    pass
 
 
 def get_token_offsets(file):
@@ -92,14 +92,14 @@ def get_tokens(data):
 def write_index_from_file(inp_file, out_file, offsets):
     inp_file.seek(offsets[1])
     offset_increase = 0
-    lines = offsets[0]
-    per_iter = 100000
-    while lines > 0:
-        data = "\n".join([x.strip() for x in inp_file.readlines(lines) if len(x.strip()) > 0])
-        data = data + "\n"
+    bytes_to_read = offsets[2] - offsets[1]
+    buffer = min(100000, bytes_to_read)
+    while bytes_to_read > 0:
+        data = inp_file.read(buffer)
+        bytes_to_read -= buffer
+        buffer = min(buffer, bytes_to_read)
         offset_increase += len(data)
         out_file.write(data)
-        lines = max(0, lines-per_iter)
     return offset_increase
 
 
@@ -175,8 +175,6 @@ def write_to_file():
             tokens_1 = list(sorted(tokens_in_file.keys()))
             p1 = 0
             len1 = len(tokens_1)
-            if letter == "h" and "halifax" in tokens_1:
-                print("Hello")
             while p1 < len1 and p2 < len2:
                 if tokens_1[p1] <= tokens_2[p2]:
                     tokens_in_file[tokens_1[p1]][1] = current_offset
@@ -366,7 +364,7 @@ def get_fields(title, text):
     fields["b"] = text_preprocessing(text)
     return fields
 
-
+page_id = None
 class Handler(xml.sax.ContentHandler):
 
     def startElement(self, name, attribs):
@@ -389,16 +387,20 @@ class Handler(xml.sax.ContentHandler):
             self.text = "".join([self.text, content])
     
     def endElement(self, name):
-        global pages, inverted_index, tokens_in_index, numFiles, titles_file, titles_offset_file
+        global pages, inverted_index, tokens_in_index, numFiles, titles_file, titles_offset_file, page_id
+        if name == "id" and page_id == None:
+            page_id = self.id
         if name == "page":
             pages += 1
             self.title = self.title.strip()
             data = get_fields(self.title.lower(), self.text.lower())
             insert_into_inverted_index(data, pages)
-            write_title(pages, self.title)
+            write_title(pages, page_id, self.title)
+            page_id = None
+            print(pages)
+            page_id = None
             if pages % 30000 == 0:
                 write_to_file()
-                # print(num_tokens)
                 inverted_index = {}
                 tokens_in_index = {}
                 numFiles += 1
@@ -407,6 +409,7 @@ class Handler(xml.sax.ContentHandler):
 contentHandler = Handler()
 parser = xml.sax.make_parser()
 parser.setContentHandler(contentHandler)
+xml_dump = BZ2File(sys.argv[1])
 parser.parse(sys.argv[1])
 if len(inverted_index) > 0:
     write_to_file()
@@ -416,3 +419,5 @@ with open(f"{index_path}imp_data.txt", "w") as file:
     file.write(str((numFiles+1)%2) + " " + str(pages))
 titles_offset_file.close()
 titles_file.close()
+ids_file.close()
+xml_dump.close()
