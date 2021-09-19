@@ -19,6 +19,8 @@ inverted_index = {}
 num_tokens = 0
 stopWords = set(stopwords.words("english"))
 current_title_offset = 0
+current_title_offset_offset = 0
+secondary_offsets = {}
 index_path = sys.argv[2]
 if index_path[-1] != "/" and index_path[-1] != "\\":
     index_path += "/"
@@ -54,8 +56,20 @@ def printError():
     quit()
 
 
+def write_secondary_offsets():
+    global secondary_offsets
+    secondary_titles_offset_file = open(f"{index_path}secondary.txt", "w")
+    data = []
+    for multiple in sorted(secondary_offsets):
+        write_string = " ".join([str(multiple), encode(secondary_offsets[multiple][0]), encode(secondary_offsets[multiple][1])])
+        data.append(write_string)
+    data = "\n".join(data)
+    secondary_titles_offset_file.write(data)
+    secondary_titles_offset_file.close()
+
+
 def write_title(page, docID, title):
-    global current_title_offset, titles_offset_file, titles_file
+    global current_title_offset, titles_offset_file, titles_file, current_title_offset_offset
     title = title.encode("ascii", errors="ignore").decode()
     write_string = " ".join([encode(int(docID)), title])
     write_string = write_string + "\n"
@@ -65,6 +79,7 @@ def write_title(page, docID, title):
     offset_string = offset_string + "\n"
     titles_offset_file.write(offset_string)
     current_title_offset = new_offset
+    current_title_offset_offset += len(offset_string)
 
 
 def get_token_offsets(file):
@@ -365,6 +380,7 @@ def get_fields(title, text):
     return fields
 
 page_id = None
+multiple = 0
 class Handler(xml.sax.ContentHandler):
 
     def startElement(self, name, attribs):
@@ -387,17 +403,24 @@ class Handler(xml.sax.ContentHandler):
             self.text = "".join([self.text, content])
     
     def endElement(self, name):
-        global pages, inverted_index, tokens_in_index, numFiles, titles_file, titles_offset_file, page_id
+        global pages, inverted_index, tokens_in_index, numFiles, titles_file, titles_offset_file, page_id, multiple
+        global secondary_offsets
         if name == "id" and page_id == None:
             page_id = self.id
         if name == "page":
+            m = pages//10000
             pages += 1
+            if m not in secondary_offsets.keys():
+                secondary_offsets[m] = [current_title_offset_offset, current_title_offset_offset]
+            if m != multiple:
+                secondary_offsets[multiple][1] = current_title_offset_offset
+                multiple = m
             self.title = self.title.strip()
             data = get_fields(self.title.lower(), self.text.lower())
             insert_into_inverted_index(data, pages)
             write_title(pages, page_id, self.title)
             page_id = None
-            print(pages)
+            # print(pages)
             page_id = None
             if pages % 30000 == 0:
                 write_to_file()
@@ -410,10 +433,12 @@ contentHandler = Handler()
 parser = xml.sax.make_parser()
 parser.setContentHandler(contentHandler)
 xml_dump = BZ2File(sys.argv[1])
-parser.parse(sys.argv[1])
+parser.parse(xml_dump)
 if len(inverted_index) > 0:
     write_to_file()
     numFiles += 1
+secondary_offsets[multiple][1] = current_title_offset_offset
+write_secondary_offsets()
 print(num_tokens)
 with open(f"{index_path}imp_data.txt", "w") as file:
     file.write(str((numFiles+1)%2) + " " + str(pages))

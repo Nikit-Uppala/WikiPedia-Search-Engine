@@ -1,6 +1,5 @@
 import time
 from typing import final
-start = time.time()
 from nltk.corpus import stopwords
 import Stemmer
 import re
@@ -9,6 +8,7 @@ import os
 import numpy as np
 from encode_decode import decode, encode
 
+start = time.time()
 if len(sys.argv) < 3:
     print("Too few arguments")
     quit()
@@ -51,34 +51,15 @@ def get_tokens_data(data):
 def get_details(query):
     global tokens_file, tokens_offsets
     details = {}
-    with open(tokens_file, "r") as file:
-        tokens_in_query = list(sorted(query))
-        len_tokens = len(tokens_in_query)
-        start = 0
-        for token in tokens_in_query:
-            details[token] = [0, 0, 0]
-        letters = set([x[0] for x in tokens_in_query])
-        for letter in sorted(letters):
-            file.seek(decode(tokens_offsets[letter][0]))
-            bytes_to_read = decode(tokens_offsets[letter][1]) - decode(tokens_offsets[letter][0])
-            buffer = min(100000, bytes_to_read)
-            while bytes_to_read > 0:
-                data = file.read(buffer)
-                if data[-1] != "\n":
-                    data = "".join([data, file.readline()])
-                bytes_to_read -= len(data)
-                buffer = min(buffer, bytes_to_read)
-                tokens_retrieved = get_tokens_data(data.rstrip())
-                for i in range(start, len_tokens):
-                    token = tokens_in_query[i]
-                    if token in tokens_retrieved:
-                        details[token] = [decode(tokens_retrieved[token][0]), decode(tokens_retrieved[token][1]), 
-                        decode(tokens_retrieved[token][2])]
-                        start = i+1
-                if start == len_tokens:
-                    break
-                if tokens_in_query[start][0] != letter:
-                    continue
+    tokens_file_obj = open(tokens_file, "r")
+    for token in sorted(query):
+        start_seek = decode(tokens_offsets[token[0]][0])
+        end_seek = decode(tokens_offsets[token[0]][1])
+        tokens_retrieved = binary_search(tokens_file_obj, start_seek, end_seek, token, True)
+        if token in tokens_retrieved:
+            details[token] = [decode(tokens_retrieved[token][0]), decode(tokens_retrieved[token][1]),
+                    decode(tokens_retrieved[token][2])]
+    tokens_file_obj.close()
     return details
 
 
@@ -94,19 +75,20 @@ def getDocsTF(data, fields=None):
             except:
                 continue
             for i in range(1, len(line)):
+                f = decode(line[i][1:])
                 if fields is None:
-                    tf += decode(line[i][1:])
+                    tf += f
                 else:
                     if line[i][0] in fields:
-                        tf += fields[line[i][0]] * decode(line[i][1:])
+                        tf += fields[line[i][0]] * f
                     else:
-                        tf += 0.35 * decode(line[i][1:])
+                        tf += 0.35 * f
             docs_tf[docID] = np.log(1+tf)
     return docs_tf
 
 
 def update_score_and_results(file, freq, details, field=None):
-    global scores, results, numPages, top_results
+    global scores, results, numPages, top_results, min_score
     bytes_to_read = details[2] - details[1]
     idf = np.log(numPages/details[0])
     buffer = min(100000, bytes_to_read)
@@ -124,14 +106,18 @@ def update_score_and_results(file, freq, details, field=None):
                 scores[doc] += docs_tf[doc] * idf
             if len(results) < top_results:
                 results[doc] = scores[doc]
+                if min_score == -1 or results[min_score] > results[doc]:
+                    min_score = doc
             else:
-                min_score = -1
-                for doc in results:
-                    if min_score == -1 or results[min_score] > results[doc]:
-                        min_score = doc
-                if scores[doc] >= results[min_score]:
+                if scores[doc] > results[min_score]:
                     results[doc] = scores[doc]
-                    results.pop(min_score)
+                    if doc != min_score:
+                        results.pop(min_score)
+                    min_score = doc
+                    for doc in results:
+                        if results[doc] < results[min_score]:
+                            min_score = doc
+
 
 
 def execute_query(query, field=False):
@@ -144,111 +130,84 @@ def execute_query(query, field=False):
             update_score_and_results(index_file, query[token], details[token], query[token])
 
 
-def get_doc_ids(data):
-    data = data.split("\n")
-    ids = {}
-    for line in data:
-        line = line.split()
-        if len(line) > 0:
-            ids[line[0]] = line[1]
-    return ids
-
-
 def get_title_offsets(data):
     data = data.split("\n")
     offsets = {}
     for line in data:
         line = line.split()
-        if len(line) > 0:
+        if len(line) > 2:
             offsets[line[0]] = [line[1], line[2]]
     return offsets
 
 
-# def print_results():
-#     global results, id_file, title_offsets_file, titles_file
-#     doc_ids = {}
-#     docs = list(sorted(results.keys()))
-#     length = len(docs)
-#     for i in range(len(docs)):
-#         docs[i] = encode(docs[i])
-#     with open(id_file, "r") as file:
-#         total_size = os.path.getsize(id_file)
-#         buffer = min(1000000, total_size)
-#         start = 0
-#         while total_size and start < length:
-#             data = file.read(buffer)
-#             if data[-1] != "\n":
-#                 data = "".join([data, data.readline()])
-#             total_size -= len(data)
-#             data = data.rstrip()
-#             buffer = min(buffer, total_size)
-#             ids = get_doc_ids(data)
-#             for i in range(start, length):
-#                 if docs[i] in ids:
-#                     doc_ids[docs[i]] = decode(ids[docs[i]])
-#                     start = i+1
-#     titles = {}
-#     with open(titles_file, "r") as file:
-#         lines = 0
-#         buffer = 1000000
-#         total_size = os.path.getsize(titles_file)
-#         start = 0
-#         while total_size > 0 and start < length:
-#             data = file.read(buffer)
-#             if data[-1] != "\n":
-#                 data = "".join([data, file.readline()])
-#             total_size -= len(data)
-#             data = data.rstrip()
-#             buffer = min(total_size, buffer)
-#             data = list(filter(lambda x: len(x) > 0, data.split("\n")))
-#             num_lines = len(data)
-#             lines += num_lines
-#             start_line = lines - num_lines + 1
-#             for i in range(start, length):
-#                 temp_doc = decode(docs[i])
-#                 if temp_doc <=  lines:
-#                     titles[docs[i]] = data[temp_doc - start_line]
-#                     start = i+1
+def get_secondary_offsets(data):
+    data = data.split("\n")
+    offsets = {}
+    for line in data:
+        line = line.split()
+        if len(line) > 2:
+            offsets[int(line[0])] = [line[1], line[2]]
+    return offsets
 
 
-#     final_result = []
-#     while len(results) != 0:
-#         max_score = -1
-#         for doc in results:
-#             if max_score == -1 or results[doc] > results[max_score]:
-#                 max_score = doc
-#         max_doc = encode(max_score)
-#         final_result.append((doc_ids[max_doc], titles[max_doc]))
-#         results.pop(max_score)
-#     # print(len(final_result))
-#     for result in final_result:
-#         print(result[0], result[1])
+def binary_search(file, start, end, string, token=False):
+    mid = (start + end) // 2
+    if not token:
+        string = decode(string)
+    while end - start > 1000:
+        file.seek(mid)
+        mid = mid + len(file.readline())
+        data = file.readline()
+        start_mid = mid + len(data)
+        words = data.split()
+        if len(words) > 0:
+            if token:
+                if string == words[0]:
+                    return get_tokens_data(data)
+                elif string > words[0]:
+                    start = start_mid
+                else:
+                    end = mid
+            else:
+                num = decode(words[0])
+                if string == num:
+                    return get_title_offsets(data)
+                elif string > num:
+                    start = start_mid
+                else:
+                    end = mid
+        else:
+            print("Something's wrong")
+        mid = (start + end) // 2
+    file.seek(start)
+    data = file.read(end-start)
+    if token:
+        return get_tokens_data(data)
+    else:
+        return get_title_offsets(data)
 
 
 def print_results():
-    global results, id_file, title_offsets_file, titles_file
+    global results, id_file, title_offsets_file, titles_file, start
     doc_ids = {}
     titles = {}
     title_offsets = {}
     docs = list(sorted(results.keys()))
-    length = len(docs)
     for i in range(len(docs)):
         docs[i] = encode(docs[i])
-    with open(title_offsets_file, "r") as file:
-        total_size = os.path.getsize(title_offsets_file)
-        buffer = min(1000000, total_size)
-        start = 0
-        while total_size > 0 and start < length:
-            data = file.read(buffer)
-            if data[-1] != "\n":
-                data = "".join([data, file.readline()])
-            total_size -= len(data)
-            buffer = min(buffer, total_size)
-            offsets = get_title_offsets(data.rstrip())
-            for i in range(start, length):
-                if docs[i] in offsets:
-                    start = i+1
-                    title_offsets[docs[i]] = [decode(offsets[docs[i]][0]), decode(offsets[docs[i]][1])]
+    with open(secondary_titles_file, "r") as file:
+        data = file.read().strip()
+        secondary_offsets = get_secondary_offsets(data)
+    file = open(title_offsets_file, "r")
+    for doc in docs:
+        num = decode(doc)
+        m = num//10000
+        start_seek = decode(secondary_offsets[m][0])
+        end_seek = decode(secondary_offsets[m][1])
+        offsets = binary_search(file, start_seek, end_seek, doc)
+        if doc in offsets:
+            title_offsets[doc] = [decode(offsets[doc][0]), decode(offsets[doc][1])]
+    file.close()
     with open(titles_file, "r") as file:
         for doc in docs:
             file.seek(title_offsets[doc][0])
@@ -267,21 +226,16 @@ def print_results():
         max_doc = encode(max_score)
         final_results.append([doc_ids[max_doc], titles[max_doc]])
         results.pop(max_score)
-    if len(final_results) == 0:
-        print("No documents found")
-        return
-    for result in final_results:
-        print(result[0], result[1])
-
-        
-
-
-def get_tokens(data):
-    global tokens_in_index
-    for line in data:
-        line = line.split()
-        tokens_in_index[line[0]] = [line[1], line[2]]
-
+    with open(query_out_file, "a") as file:
+        if len(final_results) == 0:
+            file.write("No documents found\n")
+            return
+        for result in final_results:
+            write_string = " ".join([str(result[0]), result[1]])
+            write_string = write_string + "\n"
+            file.write(write_string)
+        file.write("time = " + str(time.time()-start) + "\n")
+        file.write("\n")
 
 def get_offsets():
     global tokens_offsets, offsets_file
@@ -312,33 +266,63 @@ offsets_file = f"{inverted_index_path}tokens_offsets{flag}.txt"
 inverted_index_file = f"{inverted_index_path}inverted_index{flag}.txt"
 titles_file = f"{inverted_index_path}titles.txt"
 title_offsets_file = f"{inverted_index_path}titles_offsets.txt"
+secondary_titles_file = f"{inverted_index_path}secondary.txt"
 id_file = f"{inverted_index_path}ids.txt"
-tokens_in_index = {}
 tokens_offsets = {}
 top_results = 10
+min_score = -1
 get_offsets()
 
-query = sys.argv[2].lower()
-field_query = len(query.split(":")) > 1
-if not field_query:
-    query = text_preprocessing(query)
-    execute_query(query)
-    print_results()
-    print()
-else:
-    query = list(filter(lambda x: len(x) > 0, re.split(r"([tibrlc]):", query)))
-    fields = {}
-    for i in range(0, len(query), 2):
-        fields[query[i]] = text_preprocessing(query[i+1])
-    query = {}
-    for field in fields:
-        for word in fields[field]:
-            if word not in query:
-                query[word] = {}
-            if field not in query[word]:
-                query[word][field] = 0
-            query[word][field] += 1
-    execute_query(query, True)
-    print_results()
-    print()
-print("time_taken =", time.time() - start)
+# query = sys.argv[2].lower()
+# field_query = len(query.split(":")) > 1
+# if not field_query:
+#     query = text_preprocessing(query)
+#     execute_query(query)
+#     print_results()
+#     print()
+# else:
+#     query = list(filter(lambda x: len(x) > 0, re.split(r"([tibrlc]):", query)))
+#     fields = {}
+#     for i in range(0, len(query), 2):
+#         fields[query[i]] = text_preprocessing(query[i+1])
+#     query = {}
+#     for field in fields:
+#         for word in fields[field]:
+#             if word not in query:
+#                 query[word] = {}
+#             if field not in query[word]:
+#                 query[word][field] = 0
+#             query[word][field] += 1
+#     execute_query(query, True)
+#     print_results()
+#     print()
+# print("time_taken =", time.time() - start)
+query_file = sys.argv[2]
+query_out_file = "queries_op.txt"
+with open(query_file, "r") as file:
+    for line in file:
+        min_score = -1
+        results = {}
+        orginal_query = line.strip()
+        query = orginal_query.lower()
+        field_query = len(query.split(":")) > 1
+        if not field_query:
+            query = text_preprocessing(query)
+            execute_query(query)
+            print_results()
+        else:
+            query = list(filter(lambda x: len(x) > 0, re.split(r"([tibrlc]):", query)))
+            fields = {}
+            for i in range(0, len(query), 2):
+                fields[query[i]] = text_preprocessing(query[i+1])
+            query = {}
+            for field in fields:
+                for word in fields[field]:
+                    if word not in query:
+                        query[word] = {}
+                    if field not in query[word]:
+                        query[word][field] = 0
+                    query[word][field] += 1
+            execute_query(query, True)
+            print_results()
+        start = time.time()
